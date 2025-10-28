@@ -1,0 +1,75 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/bootstrap/autoload.php';
+
+use App\Database\Connection;
+use App\Database\Migrations\Migrator;
+use App\Database\Seeders\DatabaseSeeder;
+
+$argv = $_SERVER['argv'] ?? [];
+$command = $argv[1] ?? null;
+$options = array_slice($argv, 2);
+
+function output(string $message): void
+{
+    fwrite(STDOUT, $message . PHP_EOL);
+}
+
+function error(string $message): void
+{
+    fwrite(STDERR, $message . PHP_EOL);
+}
+
+try {
+    match ($command) {
+        'migrate' => (function () use ($options): void {
+            $migrator = new Migrator(BASE_PATH . '/database/migrations');
+            $migrator->migrate();
+            output('Migrations executed successfully.');
+
+            if (in_array('--seed', $options, true)) {
+                $seeder = new DatabaseSeeder();
+                $seeder->run();
+                output('Database seeded successfully.');
+            }
+        })(),
+        'migrate:rollback' => (function (): void {
+            $migrator = new Migrator(BASE_PATH . '/database/migrations');
+            $migrator->rollbackLast();
+            output('Rolled back the last migration.');
+        })(),
+        'seed' => (function (): void {
+            $seeder = new DatabaseSeeder();
+            $seeder->run();
+            output('Database seeded successfully.');
+        })(),
+        'test' => (function () use ($options): void {
+            // allow "--fresh" to rebuild database before running tests
+            if (in_array('--fresh', $options, true)) {
+                Connection::override(['driver' => 'sqlite', 'database' => ':memory:']);
+                $migrator = new Migrator(BASE_PATH . '/database/migrations');
+                $migrator->migrate();
+                $seeder = new DatabaseSeeder();
+                $seeder->run();
+            }
+
+            require BASE_PATH . '/tests/run.php';
+        })(),
+        null, 'help', '--help', '-h' => (function (): void {
+            output('Available commands:');
+            output('  migrate [--seed]        Run the database migrations');
+            output('  migrate:rollback        Roll back the last migration');
+            output('  seed                    Seed the database with initial data');
+            output('  test [--fresh]          Execute the test suite');
+        })(),
+        default => (function (string $unknown): void {
+            error("Unknown command: {$unknown}");
+        })($command),
+    };
+} catch (Throwable $exception) {
+    error('Error: ' . $exception->getMessage());
+    exit(1);
+}
